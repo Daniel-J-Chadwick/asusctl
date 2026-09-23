@@ -128,6 +128,10 @@ pub struct LedModeCommand {
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "aura", description = "aura device commands")]
 pub struct AuraCommand {
+    /// select a single Aura device: keyboard or rear
+    #[argh(option)]
+    pub device: Option<String>,
+
     #[argh(subcommand)]
     pub command: AuraSubCommand,
 }
@@ -138,6 +142,18 @@ pub enum AuraSubCommand {
     Power(LedPowerCommand2),
     PowerTuf(LedPowerCommand1),
     Effect(LedModeCommand),
+    Brightness(AuraBrightnessCommand),
+}
+
+#[derive(FromArgs, Debug)]
+#[argh(
+    subcommand,
+    name = "brightness",
+    description = "set Aura device brightness"
+)]
+pub struct AuraBrightnessCommand {
+    #[argh(positional, description = "brightness level: off, low, med, high")]
+    pub level: LedBrightness,
 }
 
 #[derive(FromArgs, Debug, Default)]

@@ -12,7 +12,7 @@ use log::{error, info};
 use rog_anime::usb::get_anime_type;
 use rog_anime::{AnimTime, AnimeDataBuffer, AnimeDiagonal, AnimeGif, AnimeImage, AnimeType, Vec2};
 use rog_aura::keyboard::{AuraPowerState, LaptopAuraPower};
-use rog_aura::{self, AuraEffect, PowerZones};
+use rog_aura::{self, AuraDeviceType, AuraEffect, PowerZones};
 use rog_dbus::asus_armoury::AsusArmouryProxyBlocking;
 use rog_dbus::find_iface_blocking;
 use rog_dbus::list_iface_blocking;
@@ -153,9 +153,25 @@ fn do_parsed(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match &parsed.command {
         CliCommand::Aura(a) => match &a.command {
-            crate::cli_opts::AuraSubCommand::Effect(mode) => handle_led_mode(mode)?,
-            crate::cli_opts::AuraSubCommand::PowerTuf(pow) => handle_led_power1(pow)?,
-            crate::cli_opts::AuraSubCommand::Power(pow) => handle_led_power2(pow)?,
+            crate::cli_opts::AuraSubCommand::Effect(mode) => {
+                handle_led_mode(mode, a.device.as_deref())?
+            }
+            crate::cli_opts::AuraSubCommand::PowerTuf(pow) => {
+                handle_led_power1(pow, a.device.as_deref())?
+            }
+            crate::cli_opts::AuraSubCommand::Power(pow) => {
+                handle_led_power2(pow, a.device.as_deref())?
+            }
+            crate::cli_opts::AuraSubCommand::Brightness(brightness) => {
+                for aura in selected_aura(a.device.as_deref())? {
+                    if let Some(level) = brightness.level.level() {
+                        aura.set_brightness(rog_aura::LedBrightness::from(level))?;
+                        if aura_matches_selection(aura.device_type()?, "keyboard") {
+                            reassert_rear_brightness()?;
+                        }
+                    }
+                }
+            }
         },
         CliCommand::Brightness(cmd) => handle_brightness(cmd)?,
         CliCommand::Profile(cmd) => handle_throttle_profile(&conn, supported_properties, cmd)?,
@@ -277,16 +293,15 @@ fn handle_backlight(cmd: &BacklightCommand) -> Result<(), Box<dyn std::error::Er
 }
 
 fn handle_brightness(cmd: &BrightnessCommand) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(aura_proxies) = find_iface_blocking::<AuraProxyBlocking>("xyz.ljones.Aura") else {
-        println!("No aura interface found");
-        return Ok(());
-    };
+    let aura_proxies = selected_aura(Some("keyboard"))?;
+    let mut changed = false;
 
     match &cmd.command {
         BrightnessSubCommand::Set(s) => {
             for aura in aura_proxies.iter() {
                 if let Some(level) = s.level.level() {
                     aura.set_brightness(rog_aura::LedBrightness::from(level))?;
+                    changed = true;
                 } else {
                     let current = aura.brightness()?;
                     println!("Current keyboard led brightness: {current:?}");
@@ -305,14 +320,20 @@ fn handle_brightness(cmd: &BrightnessCommand) -> Result<(), Box<dyn std::error::
             for aura in aura_proxies.iter() {
                 let brightness = aura.brightness()?;
                 aura.set_brightness(brightness.next())?;
+                changed = true;
             }
         }
         BrightnessSubCommand::Prev(_) => {
             for aura in aura_proxies.iter() {
                 let brightness = aura.brightness()?;
                 aura.set_brightness(brightness.prev())?;
+                changed = true;
             }
         }
+    }
+
+    if changed {
+        reassert_rear_brightness()?;
     }
 
     Ok(())
@@ -575,11 +596,75 @@ fn handle_scsi(cmd: &ScsiCommand) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn handle_led_mode(mode: &LedModeCommand) -> Result<(), Box<dyn std::error::Error>> {
+fn aura_matches_selection(device_type: AuraDeviceType, selection: &str) -> bool {
+    match selection {
+        "rear" => device_type == AuraDeviceType::RearGlow,
+        "keyboard" => matches!(
+            device_type,
+            AuraDeviceType::LaptopKeyboard2021
+                | AuraDeviceType::LaptopKeyboardPre2021
+                | AuraDeviceType::LaptopKeyboardTuf
+        ),
+        _ => false,
+    }
+}
+
+fn single_aura_index(
+    device_types: &[AuraDeviceType],
+    selection: Option<&str>,
+) -> Result<usize, &'static str> {
+    if selection.is_some_and(|value| value != "rear" && value != "keyboard") {
+        return Err("Aura --device must be 'rear' or 'keyboard'");
+    }
+    let matches: Vec<usize> = device_types
+        .iter()
+        .enumerate()
+        .filter_map(|(index, device_type)| {
+            if selection.is_none_or(|value| aura_matches_selection(*device_type, value)) {
+                Some(index)
+            } else {
+                None
+            }
+        })
+        .collect();
+    match matches.as_slice() {
+        [index] => Ok(*index),
+        [] => Err("No matching Aura device found"),
+        _ => Err("Multiple Aura devices found; use --device keyboard or --device rear"),
+    }
+}
+
+fn selected_aura(
+    selection: Option<&str>,
+) -> Result<Vec<AuraProxyBlocking<'static>>, Box<dyn std::error::Error>> {
+    let all = find_iface_blocking::<AuraProxyBlocking>("xyz.ljones.Aura")?;
+    let device_types = all
+        .iter()
+        .map(|aura| aura.device_type())
+        .collect::<Result<Vec<_>, _>>()?;
+    let index = single_aura_index(&device_types, selection)?;
+    Ok(all.into_iter().skip(index).take(1).collect())
+}
+
+fn reassert_rear_brightness() -> Result<(), Box<dyn std::error::Error>> {
+    // GZ302EA's keyboard sysfs brightness also changes rear output until the
+    // rear controller's own level is reasserted.
+    if let Ok(rear) = selected_aura(Some("rear")) {
+        for aura in rear {
+            aura.set_brightness(aura.brightness()?)?;
+        }
+    }
+    Ok(())
+}
+
+fn handle_led_mode(
+    mode: &LedModeCommand,
+    device: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if mode.command.is_none() && !mode.prev_mode && !mode.next_mode {
         println!("Missing arg or command; run 'asusctl aura --help' for usage");
         // print available modes when possible
-        if let Ok(aura) = find_iface_blocking::<AuraProxyBlocking>("xyz.ljones.Aura")
+        if let Ok(aura) = selected_aura(device)
             && let Some(first_aura) = aura.first()
         {
             let modes = first_aura.supported_basic_modes()?;
@@ -595,7 +680,7 @@ fn handle_led_mode(mode: &LedModeCommand) -> Result<(), Box<dyn std::error::Erro
         println!("Please specify either next or previous");
         return Ok(());
     }
-    let aura = find_iface_blocking::<AuraProxyBlocking>("xyz.ljones.Aura")?;
+    let aura = selected_aura(device)?;
     if mode.next_mode {
         for aura in aura {
             let mode = aura.led_mode()?;
@@ -635,8 +720,11 @@ fn handle_led_mode(mode: &LedModeCommand) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-fn handle_led_power1(power: &LedPowerCommand1) -> Result<(), Box<dyn std::error::Error>> {
-    let aura = find_iface_blocking::<AuraProxyBlocking>("xyz.ljones.Aura")?;
+fn handle_led_power1(
+    power: &LedPowerCommand1,
+    device: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let aura = selected_aura(device)?;
     for aura in aura {
         let dev_type = aura.device_type()?;
         if !dev_type.is_old_laptop() && !dev_type.is_tuf_laptop() {
@@ -692,8 +780,11 @@ fn handle_led_power_1_do_1866(
     Ok(())
 }
 
-fn handle_led_power2(power: &LedPowerCommand2) -> Result<(), Box<dyn std::error::Error>> {
-    let aura = find_iface_blocking::<AuraProxyBlocking>("xyz.ljones.Aura")?;
+fn handle_led_power2(
+    power: &LedPowerCommand2,
+    device: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let aura = selected_aura(device)?;
     for aura in aura {
         let dev_type = aura.device_type()?;
         if !dev_type.is_new_laptop() {
@@ -1056,5 +1147,30 @@ fn handle_armoury_command(
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod aura_selection_tests {
+    use super::{AuraDeviceType, single_aura_index};
+
+    #[test]
+    fn two_devices_require_an_explicit_selection() {
+        let devices = [
+            AuraDeviceType::RearGlow,
+            AuraDeviceType::LaptopKeyboard2021,
+        ];
+        assert!(single_aura_index(&devices, None).is_err());
+        assert_eq!(single_aura_index(&devices, Some("rear")), Ok(0));
+        assert_eq!(single_aura_index(&devices, Some("keyboard")), Ok(1));
+        assert!(single_aura_index(&devices, Some("unknown")).is_err());
+    }
+
+    #[test]
+    fn lone_keyboard_keeps_existing_default() {
+        assert_eq!(
+            single_aura_index(&[AuraDeviceType::LaptopKeyboardPre2021], None),
+            Ok(0)
+        );
     }
 }
