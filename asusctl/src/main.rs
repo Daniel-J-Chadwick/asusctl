@@ -748,29 +748,28 @@ fn handle_led_power1(
     device: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let aura = selected_aura(device)?;
+    if power.awake.is_none()
+        && power.sleep.is_none()
+        && power.boot.is_none()
+        && !power.keyboard
+        && !power.lightbar
+    {
+        println!("Missing arg or command; run 'asusctl aura power-tuf --help' for usage");
+        return Ok(());
+    }
+
+    let mut updated = false;
     for aura in aura {
         let dev_type = aura.device_type()?;
-        if !dev_type.is_old_laptop() && !dev_type.is_tuf_laptop() {
-            println!("This option applies only to keyboards 2021+");
-        }
-
-        if power.awake.is_none()
-            && power.sleep.is_none()
-            && power.boot.is_none()
-            && !power.keyboard
-            && !power.lightbar
-        {
-            println!("Missing arg or command; run 'asusctl aura power-tuf --help' for usage");
-            return Ok(());
-        }
-
         if dev_type.is_old_laptop() || dev_type.is_tuf_laptop() {
             handle_led_power_1_do_1866(&aura, power)?;
-            return Ok(());
+            updated = true;
         }
     }
 
-    println!("These options are for keyboards of product ID 0x1866 or TUF only");
+    if !updated {
+        println!("These options are for keyboards of product ID 0x1866 or TUF only");
+    }
     Ok(())
 }
 
