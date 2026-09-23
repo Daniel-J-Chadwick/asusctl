@@ -601,7 +601,8 @@ fn aura_matches_selection(device_type: AuraDeviceType, selection: &str) -> bool 
         "rear" => device_type == AuraDeviceType::RearGlow,
         "keyboard" => matches!(
             device_type,
-            AuraDeviceType::LaptopKeyboard2021
+            AuraDeviceType::Ally
+                | AuraDeviceType::LaptopKeyboard2021
                 | AuraDeviceType::LaptopKeyboardPre2021
                 | AuraDeviceType::LaptopKeyboardTuf
         ),
@@ -609,10 +610,10 @@ fn aura_matches_selection(device_type: AuraDeviceType, selection: &str) -> bool 
     }
 }
 
-fn single_aura_index(
+fn aura_indices(
     device_types: &[AuraDeviceType],
     selection: Option<&str>,
-) -> Result<usize, &'static str> {
+) -> Result<Vec<usize>, &'static str> {
     if selection.is_some_and(|value| value != "rear" && value != "keyboard") {
         return Err("Aura --device must be 'rear' or 'keyboard'");
     }
@@ -627,9 +628,19 @@ fn single_aura_index(
             }
         })
         .collect();
-    match matches.as_slice() {
+    if matches.is_empty() {
+        Err("No matching Aura device found")
+    } else {
+        Ok(matches)
+    }
+}
+
+fn single_aura_index(
+    device_types: &[AuraDeviceType],
+    selection: Option<&str>,
+) -> Result<usize, &'static str> {
+    match aura_indices(device_types, selection)?.as_slice() {
         [index] => Ok(*index),
-        [] => Err("No matching Aura device found"),
         _ => Err("Multiple Aura devices found; use --device keyboard or --device rear"),
     }
 }
@@ -642,17 +653,29 @@ fn selected_aura(
         .iter()
         .map(|aura| aura.device_type())
         .collect::<Result<Vec<_>, _>>()?;
-    let index = single_aura_index(&device_types, selection)?;
-    Ok(all.into_iter().skip(index).take(1).collect())
+    let indices = if selection == Some("keyboard") {
+        aura_indices(&device_types, selection)?
+    } else {
+        vec![single_aura_index(&device_types, selection)?]
+    };
+    Ok(all
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, aura)| indices.contains(&index).then_some(aura))
+        .collect())
 }
 
 fn reassert_rear_brightness() -> Result<(), Box<dyn std::error::Error>> {
     // GZ302EA's keyboard sysfs brightness also changes rear output until the
     // rear controller's own level is reasserted.
-    if let Ok(rear) = selected_aura(Some("rear")) {
-        for aura in rear {
-            aura.set_brightness(aura.brightness()?)?;
+    let mut rear = None;
+    for aura in find_iface_blocking::<AuraProxyBlocking>("xyz.ljones.Aura")? {
+        if aura.device_type()? == AuraDeviceType::RearGlow && rear.replace(aura).is_some() {
+            return Err("Multiple rear Aura devices found".into());
         }
+    }
+    if let Some(aura) = rear {
+        aura.set_brightness(aura.brightness()?)?;
     }
     Ok(())
 }
@@ -1152,7 +1175,7 @@ fn handle_armoury_command(
 
 #[cfg(test)]
 mod aura_selection_tests {
-    use super::{AuraDeviceType, single_aura_index};
+    use super::{AuraDeviceType, aura_indices, single_aura_index};
 
     #[test]
     fn two_devices_require_an_explicit_selection() {
@@ -1172,5 +1195,18 @@ mod aura_selection_tests {
             single_aura_index(&[AuraDeviceType::LaptopKeyboardPre2021], None),
             Ok(0)
         );
+    }
+
+    #[test]
+    fn explicit_keyboard_selects_all_keyboard_controllers() {
+        let devices = [
+            AuraDeviceType::LaptopKeyboardPre2021,
+            AuraDeviceType::RearGlow,
+            AuraDeviceType::Ally,
+            AuraDeviceType::LaptopKeyboard2021,
+        ];
+        assert_eq!(aura_indices(&devices, Some("keyboard")), Ok(vec![0, 2, 3]));
+        assert!(single_aura_index(&devices, Some("rear")).is_ok());
+        assert!(single_aura_index(&devices, None).is_err());
     }
 }
