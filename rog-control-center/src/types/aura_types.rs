@@ -155,6 +155,7 @@ impl From<SlintDeviceType> for AuraDeviceType {
             SlintDeviceType::Unknown => Self::Unknown,
             SlintDeviceType::Ally => Self::Ally,
             SlintDeviceType::AnimeOrSlash => Self::AnimeOrSlash,
+            SlintDeviceType::RearGlow => Self::RearGlow,
         }
     }
 }
@@ -169,6 +170,7 @@ impl From<AuraDeviceType> for SlintDeviceType {
             AuraDeviceType::Unknown => SlintDeviceType::Unknown,
             AuraDeviceType::Ally => SlintDeviceType::Ally,
             AuraDeviceType::AnimeOrSlash => SlintDeviceType::AnimeOrSlash,
+            AuraDeviceType::RearGlow => SlintDeviceType::RearGlow,
         }
     }
 }

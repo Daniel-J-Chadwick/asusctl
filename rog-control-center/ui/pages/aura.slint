@@ -23,6 +23,13 @@ export component PageAura inherits Rectangle {
             padding: 10px;
             spacing: 10px;
             alignment: LayoutAlignment.start;
+            if AuraPageData.device_names.length > 1: SystemDropdown {
+                text: @tr("Lighting device");
+                current_index <=> AuraPageData.selected_device;
+                current_value: AuraPageData.device_names[self.current-index];
+                model <=> AuraPageData.device_names;
+                selected => { AuraPageData.select_device(self.current-index); }
+            }
             HorizontalLayout {
                 spacing: 10px;
                 SystemDropdown {
@@ -182,6 +189,7 @@ export component PageAura inherits Rectangle {
 
             HorizontalLayout {
                 Button {
+                    visible: AuraPageData.device_type != AuraDevType.RearGlow;
                     text: @tr("Power Settings");
                     clicked => {
                         root.show_fade_cover = true;

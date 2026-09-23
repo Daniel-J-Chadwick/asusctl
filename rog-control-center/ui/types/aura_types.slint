@@ -6,6 +6,7 @@ export enum AuraDevType {
     Unknown,
     Ally,
     AnimeOrSlash,
+    RearGlow,
 }
 
 export struct AuraEffect {
@@ -50,6 +51,9 @@ export struct LaptopAuraPower {
 // Modes with colour2: Breathe, Star only.
 // Speed: Breathe,Strobe,Rainbow,Star,Rain,Highlight,Laser,Ripple. Direction: Rainbow only.
 export global AuraPageData {
+    in-out property <[string]> device_names: [];
+    in-out property <int> selected_device: 0;
+    callback select_device(int);
     in-out property <[string]> power_zone_names: [
         @tr("Aura power zone" => "Logo"),
         @tr("Aura power zone" => "Keyboard"),
