@@ -174,34 +174,47 @@ impl DeviceHandle {
 
     pub async fn maybe_laptop_aura(
         device: Option<Arc<Mutex<HidRaw>>>,
+        lamp_array: Option<Arc<Mutex<HidRaw>>>,
         prod_id: &str,
     ) -> Result<Self, RogError> {
         debug!("Testing for laptop aura");
-        let aura_type = AuraDeviceType::from(prod_id);
+        let board_name = dmi_id::DMIID::new().unwrap_or_default().board_name;
+        let aura_type = AuraDeviceType::for_product_and_board(prod_id, &board_name);
+        if aura_type == AuraDeviceType::RearGlow && lamp_array.is_none() {
+            return Err(RogError::NotFound(
+                "GZ302EA rear LampArray interface missing".to_string(),
+            ));
+        }
         if !matches!(
             aura_type,
             AuraDeviceType::LaptopKeyboard2021
                 | AuraDeviceType::LaptopKeyboardPre2021
                 | AuraDeviceType::LaptopKeyboardTuf
                 | AuraDeviceType::Ally
+                | AuraDeviceType::RearGlow
         ) {
             log::info!("Unknown or invalid laptop aura: {prod_id:?}, skipping");
             return Err(RogError::NotFound("No laptop aura device".to_string()));
         }
         info!("Found laptop aura type {prod_id:?}");
 
-        let backlight = KeyboardBacklight::new()
-            .map_err(|e| error!("Keyboard backlight error: {e:?}"))
-            .map_or(None, |k| {
-                info!("Found sysfs backlight control");
-                Some(Arc::new(Mutex::new(k)))
-            });
+        let backlight = if aura_type == AuraDeviceType::RearGlow {
+            None
+        } else {
+            KeyboardBacklight::new()
+                .map_err(|e| error!("Keyboard backlight error: {e:?}"))
+                .map_or(None, |k| {
+                    info!("Found sysfs backlight control");
+                    Some(Arc::new(Mutex::new(k)))
+                })
+        };
 
         // Load saved mode, colours, brightness, power from disk; apply on reload
         let mut config = AuraConfig::load_and_update_config(prod_id);
         config.led_type = aura_type;
         let aura = Aura {
             hid: device,
+            lamp_array,
             backlight,
             config: Arc::new(Mutex::new(config)),
         };

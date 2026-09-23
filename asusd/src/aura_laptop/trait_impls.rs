@@ -61,6 +61,11 @@ impl AuraZbus {
     /// Return the current LED brightness
     #[zbus(property)]
     async fn brightness(&self) -> Result<LedBrightness, ZbErr> {
+        let config = self.0.config.lock().await;
+        if config.led_type == AuraDeviceType::RearGlow {
+            return Ok(config.brightness);
+        }
+        drop(config);
         if let Some(bl) = self.0.backlight.as_ref() {
             return Ok(bl.lock().await.get_brightness().map(|n| n.into())?);
         }
@@ -70,6 +75,21 @@ impl AuraZbus {
     /// Set the keyboard brightness level (0-3)
     #[zbus(property)]
     async fn set_brightness(&mut self, brightness: LedBrightness) -> Result<(), ZbErr> {
+        let mut config = self.0.config.lock().await;
+        if config.led_type == AuraDeviceType::RearGlow {
+            let effect = config
+                .builtins
+                .get(&config.current_mode)
+                .cloned()
+                .ok_or_else(|| ZbErr::Failed("No rear colour configured".to_string()))?;
+            self.0
+                .write_effect_and_apply(config.led_type, &effect, brightness)
+                .await?;
+            config.brightness = brightness;
+            config.write();
+            return Ok(());
+        }
+        drop(config);
         if let Some(bl) = self.0.backlight.as_ref() {
             let res = bl.lock().await.set_brightness(brightness.into());
             if res.is_ok() {
@@ -132,12 +152,24 @@ impl AuraZbus {
     #[zbus(property)]
     async fn set_led_mode(&mut self, num: AuraModeNum) -> Result<(), ZbErr> {
         let mut config = self.0.config.lock().await;
+        if config.led_type == AuraDeviceType::RearGlow
+            && !config.support_data.basic_modes.contains(&num)
+        {
+            return Err(ZbErr::NotSupported(format!(
+                "Rear mode {num:?} is unsupported"
+            )));
+        }
         config.current_mode = num;
+        if config.led_type == AuraDeviceType::RearGlow && config.brightness == LedBrightness::Off {
+            config.brightness = LedBrightness::Med;
+        }
         self.0.write_current_config_mode(&mut config).await?;
         if config.brightness == LedBrightness::Off {
             config.brightness = LedBrightness::Med;
         }
-        if let Err(e) = self.0.set_brightness(config.brightness.into()).await {
+        if config.led_type != AuraDeviceType::RearGlow
+            && let Err(e) = self.0.set_brightness(config.brightness.into()).await
+        {
             log::warn!("Could not set keyboard backlight brightness: {e}");
         }
         config.write();
@@ -176,12 +208,22 @@ impl AuraZbus {
         }
 
         self.0
-            .write_effect_and_apply(config.led_type, &effect)
+            .write_effect_and_apply(
+                config.led_type,
+                &effect,
+                if config.brightness == LedBrightness::Off {
+                    LedBrightness::Med
+                } else {
+                    config.brightness
+                },
+            )
             .await?;
         if config.brightness == LedBrightness::Off {
             config.brightness = LedBrightness::Med;
         }
-        if let Err(e) = self.0.set_brightness(config.brightness.into()).await {
+        if config.led_type != AuraDeviceType::RearGlow
+            && let Err(e) = self.0.set_brightness(config.brightness.into()).await
+        {
             log::warn!("Could not set keyboard backlight brightness: {e}");
         }
         config.set_builtin(effect);
@@ -209,6 +251,11 @@ impl AuraZbus {
     #[zbus(property)]
     async fn set_led_power(&mut self, options: LaptopAuraPower) -> Result<(), ZbErr> {
         let mut config = self.0.config.lock().await;
+        if config.led_type == AuraDeviceType::RearGlow {
+            return Err(ZbErr::NotSupported(
+                "Rear power is controlled through brightness".to_string(),
+            ));
+        }
         for opt in options.states {
             let zone = opt.zone;
             for state in config.enabled.states.iter_mut() {
@@ -340,12 +387,14 @@ impl Reloadable for AuraZbus {
     async fn reload(&mut self) -> Result<(), RogError> {
         self.0.fix_ally_power().await?;
         let mut config = self.0.lock_config().await;
-        debug!("reloading power states");
-        self.0
-            .set_power_states(&config)
-            .await
-            .map_err(|err| warn!("{err}"))
-            .ok();
+        if config.led_type != AuraDeviceType::RearGlow {
+            debug!("reloading power states");
+            self.0
+                .set_power_states(&config)
+                .await
+                .map_err(|err| warn!("{err}"))
+                .ok();
+        }
         debug!("reloading keyboard mode");
         self.0.write_current_config_mode(&mut config).await?;
         Ok(())

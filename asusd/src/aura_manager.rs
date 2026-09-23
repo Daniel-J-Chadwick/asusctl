@@ -93,6 +93,7 @@ pub struct AsusDevice {
     device: DeviceHandle,
     dbus_path: OwnedObjectPath,
     hid_key: Option<String>,
+    aux_hid_key: Option<String>,
 }
 
 pub struct DeviceManager {
@@ -129,6 +130,91 @@ fn is_non_aura_1ce6_interface(device: &Device) -> bool {
         }
     }
     false
+}
+
+/// GZ302EA's 18c6 exposes rear Aura on USB interface 0 and an unrelated
+/// LampArray on interface 1. Select the output-capable 0x5d endpoint by USB
+/// identity, interface and descriptor, never by an unstable hidraw number.
+fn has_gz302_rear_aura_output(descriptor: &[u8]) -> bool {
+    descriptor.windows(8).any(|window| {
+        window
+            == [
+                0x85, 0x5d, 0x19, 0x00, 0x2a, 0xff, 0x00, 0x15,
+            ]
+    }) && descriptor.windows(6).any(|window| {
+        window
+            == [
+                0x75, 0x08, 0x95, 0x3f, 0x91, 0x00,
+            ]
+    })
+}
+
+fn is_gz302_rear_hid(device: &Device) -> bool {
+    if DMIID::new().unwrap_or_default().board_name != "GZ302EA" {
+        return false;
+    }
+    let Ok(Some(parent)) = device.parent_with_subsystem_devtype("usb", "usb_device") else {
+        return false;
+    };
+    parent.attribute_value("idVendor") == Some(std::ffi::OsStr::new("0b05"))
+        && parent.attribute_value("idProduct") == Some(std::ffi::OsStr::new("18c6"))
+}
+
+/// Resolve both rear-light interfaces under the same physical USB parent.
+/// Enumeration order and hidraw minor numbers must not choose the endpoint.
+fn gz302_rear_pair(device: &Device) -> Option<(Device, Device)> {
+    if DMIID::new().ok()?.board_name != "GZ302EA" {
+        return None;
+    }
+    let parent = device
+        .parent_with_subsystem_devtype("usb", "usb_device")
+        .ok()??;
+    if parent.attribute_value("idVendor")? != "0b05"
+        || parent.attribute_value("idProduct")? != "18c6"
+    {
+        return None;
+    }
+    let mut enumerator = udev::Enumerator::new().ok()?;
+    enumerator.match_subsystem("hidraw").ok()?;
+    let mut aura = None;
+    let mut lamp = None;
+    for candidate in enumerator.scan_devices().ok()? {
+        let Some(usb) = candidate
+            .parent_with_subsystem_devtype("usb", "usb_device")
+            .ok()?
+        else {
+            continue;
+        };
+        if usb.syspath() != parent.syspath() {
+            continue;
+        }
+        let descriptor = candidate
+            .parent()
+            .and_then(|hid| std::fs::read(hid.syspath().join("report_descriptor")).ok());
+        let Some(interface) = candidate
+            .parent_with_subsystem_devtype("usb", "usb_interface")
+            .ok()?
+        else {
+            continue;
+        };
+        let interface_number = interface.attribute_value("bInterfaceNumber");
+        if interface_number == Some(std::ffi::OsStr::new("00"))
+            && descriptor
+                .as_deref()
+                .is_some_and(has_gz302_rear_aura_output)
+        {
+            aura = Some(candidate);
+        } else if interface_number == Some(std::ffi::OsStr::new("01"))
+            && descriptor.as_deref().is_some_and(|d| {
+                d.starts_with(&[
+                    0x06, 0x59, 0x00, 0x09, 0x01, 0xa1, 0x01,
+                ])
+            })
+        {
+            lamp = Some(candidate);
+        }
+    }
+    Some((aura?, lamp?))
 }
 
 impl DeviceManager {
@@ -172,6 +258,21 @@ impl DeviceManager {
             // 2. Create the device
             // Use the top-level endpoint, not the parent
             if let Ok((dev, hid_key)) = Self::get_or_create_hid_handle(&handles, &device).await {
+                let rear_lamp = if is_gz302_rear_hid(&device) {
+                    let Some((_, lamp_endpoint)) = gz302_rear_pair(&device) else {
+                        warn!("GZ302EA 18c6 Aura/LampArray pair incomplete");
+                        return Ok(devices);
+                    };
+                    match Self::get_or_create_hid_handle(&handles, &lamp_endpoint).await {
+                        Ok(pair) => Some(pair),
+                        Err(err) => {
+                            warn!("GZ302EA rear LampArray unavailable: {err}");
+                            return Ok(devices);
+                        }
+                    }
+                } else {
+                    None
+                };
                 debug!("Testing device {usb_id:?}");
                 // SLASH DEVICE
                 if let Ok(dev_type) =
@@ -193,6 +294,7 @@ impl DeviceManager {
                             device: dev_type,
                             dbus_path: path,
                             hid_key: Some(hid_key.clone()),
+                            aux_hid_key: None,
                         });
                     }
                 }
@@ -216,13 +318,17 @@ impl DeviceManager {
                             device: dev_type,
                             dbus_path: path,
                             hid_key: Some(hid_key.clone()),
+                            aux_hid_key: None,
                         });
                     }
                 }
                 // AURA LAPTOP DEVICE
-                if let Ok(dev_type) =
-                    DeviceHandle::maybe_laptop_aura(Some(dev), usb_id.to_str().unwrap_or_default())
-                        .await
+                if let Ok(dev_type) = DeviceHandle::maybe_laptop_aura(
+                    Some(dev),
+                    rear_lamp.as_ref().map(|(handle, _)| handle.clone()),
+                    usb_id.to_str().unwrap_or_default(),
+                )
+                .await
                     && let DeviceHandle::Aura(aura) = dev_type.clone()
                 {
                     let path = dbus_path_for_dev(&usb_device).unwrap_or(dbus_path_for_tuf());
@@ -239,6 +345,7 @@ impl DeviceManager {
                             device: dev_type,
                             dbus_path: path,
                             hid_key: Some(hid_key),
+                            aux_hid_key: rear_lamp.map(|(_, key)| key),
                         });
                     }
                 }
@@ -275,6 +382,15 @@ impl DeviceManager {
             .scan_devices()
             .map_err(|e| PlatformError::IoPath("enumerator".to_owned(), e))?
         {
+            let device = if is_gz302_rear_hid(&device) {
+                let Some((aura, _lamp)) = gz302_rear_pair(&device) else {
+                    debug!("Waiting for both GZ302EA rear HID interfaces");
+                    continue;
+                };
+                aura
+            } else {
+                device
+            };
             // ASUS Zephyrus Duo keyboard 0b05:1ce6 is a composite HID device;
             // see is_non_aura_1ce6_interface for why interface 1.2 is required.
             if is_non_aura_1ce6_interface(&device) {
@@ -384,6 +500,7 @@ impl DeviceManager {
                         device: dev_type,
                         dbus_path: path,
                         hid_key: None,
+                        aux_hid_key: None,
                     });
                 }
             }
@@ -472,6 +589,7 @@ impl DeviceManager {
                             device: dev_type,
                             dbus_path: path,
                             hid_key: None,
+                            aux_hid_key: None,
                         });
                     }
                 }
@@ -496,6 +614,7 @@ impl DeviceManager {
                             device: dev_type,
                             dbus_path: path,
                             hid_key: None,
+                            aux_hid_key: None,
                         });
                     }
                 }
@@ -515,7 +634,7 @@ impl DeviceManager {
             );
             if product_name.contains("TUF") || product_family.contains("TUF") {
                 info!("TUF laptop, try using sysfs backlight control");
-                if let Ok(dev_type) = DeviceHandle::maybe_laptop_aura(None, "tuf").await
+                if let Ok(dev_type) = DeviceHandle::maybe_laptop_aura(None, None, "tuf").await
                     && let DeviceHandle::Aura(aura) = dev_type.clone()
                 {
                     let path = dbus_path_for_tuf();
@@ -532,6 +651,7 @@ impl DeviceManager {
                             device: dev_type,
                             dbus_path: path,
                             hid_key: None,
+                            aux_hid_key: None,
                         });
                     }
                 }
@@ -664,6 +784,8 @@ impl DeviceManager {
                                         .enumerate()
                                         .filter_map(|(i, dev)| {
                                             if dev.hid_key.as_deref() == Some(removed_node.as_str())
+                                                || dev.aux_hid_key.as_deref()
+                                                    == Some(removed_node.as_str())
                                             {
                                                 Some(i)
                                             } else {
@@ -675,6 +797,12 @@ impl DeviceManager {
                                     for index in removals.iter().rev() {
                                         let dev = devices.lock().await.remove(*index);
                                         let path = dev.dbus_path.clone();
+                                        if let Some(key) = dev.aux_hid_key.as_ref() {
+                                            hid_handles.lock().await.remove(key);
+                                        }
+                                        if let Some(key) = dev.hid_key.as_ref() {
+                                            hid_handles.lock().await.remove(key);
+                                        }
                                         let res = match dev.device {
                                             DeviceHandle::Aura(_) => {
                                                 conn_copy
@@ -730,6 +858,15 @@ impl DeviceManager {
                                     return Ok(());
                                 }
                                 let evdev = event.device();
+                                let evdev = if is_gz302_rear_hid(&evdev) {
+                                    let Some((aura, _lamp)) = gz302_rear_pair(&evdev) else {
+                                        debug!("Waiting for both GZ302EA rear HID interfaces");
+                                        return Ok(());
+                                    };
+                                    aura
+                                } else {
+                                    evdev
+                                };
                                 if is_non_aura_1ce6_interface(&evdev) {
                                     return Ok(());
                                 }
@@ -753,5 +890,23 @@ impl DeviceManager {
             Ok::<(), RogError>(())
         });
         Ok(manager)
+    }
+}
+
+#[cfg(test)]
+mod rear_aura_descriptor_tests {
+    use super::has_gz302_rear_aura_output;
+
+    #[test]
+    fn matches_only_the_output_capable_aura_descriptor() {
+        let aura = [
+            0x85, 0x5d, 0x19, 0x00, 0x2a, 0xff, 0x00, 0x15, 0x00, 0x75, 0x08, 0x95, 0x3f, 0x91,
+            0x00,
+        ];
+        assert!(has_gz302_rear_aura_output(&aura));
+        assert!(!has_gz302_rear_aura_output(&aura[..13]));
+        assert!(!has_gz302_rear_aura_output(&[
+            0x85, 0x04, 0x75, 8, 0x95, 8, 0x91, 0
+        ]));
     }
 }

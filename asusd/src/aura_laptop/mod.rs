@@ -3,6 +3,7 @@ use std::sync::Arc;
 use config::AuraConfig;
 use config_traits::StdConfig;
 use log::info;
+use rog_aura::gz302_rear::{lamp_control, static_colour_reports, wake_reports};
 use rog_aura::keyboard::{AuraLaptopUsbPackets, LedUsbPackets};
 use rog_aura::usb::{AURA_LAPTOP_LED_APPLY, AURA_LAPTOP_LED_SET};
 use rog_aura::{AURA_LAPTOP_LED_MSG_LEN, AuraDeviceType, AuraEffect, LedBrightness, PowerZones};
@@ -18,6 +19,8 @@ pub mod trait_impls;
 #[derive(Debug, Clone)]
 pub struct Aura {
     pub hid: Option<Arc<Mutex<HidRaw>>>,
+    /// GZ302EA 18c6 interface 1; paired with `hid` on the same USB parent.
+    pub lamp_array: Option<Arc<Mutex<HidRaw>>>,
     pub backlight: Option<Arc<Mutex<KeyboardBacklight>>>,
     pub config: Arc<Mutex<AuraConfig>>,
 }
@@ -70,13 +73,14 @@ impl Aura {
                 && let Some(set) = multizones.get(&mode)
             {
                 for mode in set.clone() {
-                    self.write_effect_and_apply(config.led_type, &mode).await?;
+                    self.write_effect_and_apply(config.led_type, &mode, config.brightness)
+                        .await?;
                 }
             }
         } else {
             let mode = config.current_mode;
             if let Some(effect) = config.builtins.get(&mode).cloned() {
-                self.write_effect_and_apply(config.led_type, &effect)
+                self.write_effect_and_apply(config.led_type, &effect, config.brightness)
                     .await?;
             }
         }
@@ -92,8 +96,32 @@ impl Aura {
         &self,
         dev_type: AuraDeviceType,
         mode: &AuraEffect,
+        brightness: LedBrightness,
     ) -> Result<(), RogError> {
-        if matches!(dev_type, AuraDeviceType::LaptopKeyboardTuf) {
+        if dev_type == AuraDeviceType::RearGlow {
+            let aura = self.hid.as_ref().ok_or(RogError::NoAuraKeyboard)?;
+            let lamp = self.lamp_array.as_ref().ok_or(RogError::NoAuraKeyboard)?;
+            {
+                let aura = aura.lock().await;
+                for report in wake_reports(brightness) {
+                    aura.write_bytes(&report)?;
+                }
+            }
+            let lamp = lamp.lock().await;
+            if brightness == LedBrightness::Off {
+                lamp.write_feature(&lamp_control(true))?;
+            } else {
+                // G-Helper's LampArray Control() changes autonomous -> host
+                // before sending the colour updates. This exact transition
+                // was needed for the rear window to show verified green.
+                lamp.write_feature(&lamp_control(true))?;
+                lamp.write_feature(&lamp_control(false))?;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                for report in static_colour_reports(mode.colour1) {
+                    lamp.write_feature(&report)?;
+                }
+            }
+        } else if matches!(dev_type, AuraDeviceType::LaptopKeyboardTuf) {
             if let Some(platform) = &self.backlight {
                 let buf = [
                     1, mode.mode as u8, mode.colour1.r, mode.colour1.g, mode.colour1.b,
@@ -140,6 +168,11 @@ impl Aura {
     /// Set combination state for boot animation/sleep animation/all leds/keys
     /// leds/side leds LED active
     pub async fn set_power_states(&self, config: &AuraConfig) -> Result<(), RogError> {
+        if config.led_type == AuraDeviceType::RearGlow {
+            return Err(RogError::MissingFunction(
+                "Rear power is controlled through brightness".to_string(),
+            ));
+        }
         if matches!(config.led_type, rog_aura::AuraDeviceType::LaptopKeyboardTuf) {
             if let Some(backlight) = &self.backlight {
                 // TODO: tuf bool array
@@ -181,6 +214,9 @@ impl Aura {
         config: &mut AuraConfig,
         effect: &AuraLaptopUsbPackets,
     ) -> Result<(), RogError> {
+        if config.led_type == AuraDeviceType::RearGlow {
+            return Err(RogError::AuraEffectNotSupported);
+        }
         if config.brightness == LedBrightness::Off {
             config.brightness = LedBrightness::Med;
             config.write();

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use config_traits::{StdConfig, StdConfigLoad};
+use dmi_id::DMIID;
 use log::{debug, info, warn};
 use rog_aura::aura_detection::LedSupportData;
 use rog_aura::keyboard::LaptopAuraPower;
@@ -57,7 +58,8 @@ impl AuraConfig {
     pub fn new(prod_id: &str) -> Self {
         info!("Setting up AuraConfig for {prod_id:?}");
         // create a default config here
-        let device_type = AuraDeviceType::from(prod_id);
+        let board_name = DMIID::new().unwrap_or_default().board_name;
+        let device_type = AuraDeviceType::for_product_and_board(prod_id, &board_name);
         if device_type == AuraDeviceType::Unknown {
             warn!("idProduct:{prod_id:?} is unknown");
         }

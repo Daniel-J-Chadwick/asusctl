@@ -1,12 +1,18 @@
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::os::fd::AsRawFd;
+use std::os::raw::{c_int, c_ulong};
 use std::path::PathBuf;
 
 use log::{info, warn};
 use udev::Device;
 
 use crate::error::{PlatformError, Result};
+
+unsafe extern "C" {
+    fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
+}
 
 /// A USB device that utilizes hidraw for I/O
 #[derive(Debug)]
@@ -111,6 +117,29 @@ impl HidRaw {
             file.write_all(message).map_err(|e| {
                 PlatformError::IoPath(self.devfs_path.to_string_lossy().to_string(), e)
             })?;
+        }
+        Ok(())
+    }
+
+    /// Send one HID feature report, including its report-ID byte.
+    pub fn write_feature(&self, report: &[u8]) -> Result<()> {
+        if report.is_empty() || report.len() > 4096 {
+            return Err(PlatformError::MissingFunction(
+                "Invalid HID feature report length".to_string(),
+            ));
+        }
+        // HIDIOCSFEATURE(len) = _IOC(_IOC_READ | _IOC_WRITE, 'H', 0x06, len).
+        let request = (0xc000_4806_u64 | ((report.len() as u64) << 16)) as c_ulong;
+        let file = self.file.borrow();
+        let mut buffer = report.to_vec();
+        // SAFETY: the writable buffer remains valid until ioctl returns and
+        // contains report.len() bytes, including the report ID.
+        let result = unsafe { ioctl(file.as_raw_fd(), request, buffer.as_mut_ptr()) };
+        if result < 0 {
+            return Err(PlatformError::IoPath(
+                self.devfs_path.to_string_lossy().to_string(),
+                std::io::Error::last_os_error(),
+            ));
         }
         Ok(())
     }
