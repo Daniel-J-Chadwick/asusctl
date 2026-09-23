@@ -266,6 +266,25 @@ mod tests {
     }
 
     #[test]
+    fn gz302_support_db_separates_keyboard_and_rear() {
+        let db: LedSupportFile = ron::from_str(include_str!("../data/aura_support.ron")).unwrap();
+        let keyboard = db.match_device("GZ302EA", "1a30");
+        let rear = db.match_device("GZ302EA", "18c6");
+        assert_eq!(
+            keyboard.basic_modes,
+            vec![
+                AuraModeNum::Static,
+                AuraModeNum::Breathe,
+                AuraModeNum::Pulse
+            ]
+        );
+        assert_eq!(keyboard.power_zones, vec![PowerZones::Keyboard]);
+        assert_eq!(rear.basic_modes, vec![AuraModeNum::Static]);
+        assert!(rear.power_zones.is_empty());
+        assert!(rear.basic_zones.is_empty());
+    }
+
+    #[test]
     fn find_data_file_groups() -> Result<(), Box<dyn std::error::Error>> {
         let mut data = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         data.push("data/aura_support.ron");

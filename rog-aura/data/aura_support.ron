@@ -1251,6 +1251,15 @@
         power_zones: [Keyboard],
     ),
     (
+        device_name: "GZ302EA",
+        product_id: "18c6",
+        layout_name: "",
+        basic_modes: [Static],
+        basic_zones: [],
+        advanced_type: r#None,
+        power_zones: [],
+    ),
+    (
         device_name: "RC71L",
         product_id: "",
         layout_name: "ga401q",

@@ -21,6 +21,7 @@ pub mod aura_detection;
 pub mod error;
 pub mod usb;
 
+pub mod gz302_rear;
 pub mod keyboard;
 
 pub const AURA_LAPTOP_LED_MSG_LEN: usize = 17;
@@ -76,10 +77,24 @@ pub enum AuraDeviceType {
     ScsiExtDisk = 3,
     Ally = 4,
     AnimeOrSlash = 5,
+    /// GZ302EA 18c6 rear-window Aura controller, separate from its keyboard.
+    RearGlow = 6,
     Unknown = 255,
 }
 
 impl AuraDeviceType {
+    /// Resolve roles that depend on both the laptop model and USB product ID.
+    pub fn for_product_and_board(product_id: &str, board_name: &str) -> Self {
+        if board_name == "GZ302EA"
+            && product_id
+                .trim_start_matches("0x")
+                .eq_ignore_ascii_case("18c6")
+        {
+            return Self::RearGlow;
+        }
+        Self::from(product_id)
+    }
+
     pub fn is_old_laptop(&self) -> bool {
         *self == Self::LaptopKeyboardPre2021
     }
@@ -104,6 +119,31 @@ impl From<&str> for AuraDeviceType {
             "19b6" | "1a30" | "1ce6" => Self::LaptopKeyboard2021,
             _ => Self::Unknown,
         }
+    }
+}
+
+#[cfg(test)]
+mod device_role_tests {
+    use super::AuraDeviceType;
+
+    #[test]
+    fn gz302_rear_and_keyboard_are_distinct() {
+        assert_eq!(
+            AuraDeviceType::for_product_and_board("18c6", "GZ302EA"),
+            AuraDeviceType::RearGlow
+        );
+        assert_eq!(
+            AuraDeviceType::for_product_and_board("1a30", "GZ302EA"),
+            AuraDeviceType::LaptopKeyboard2021
+        );
+        assert_eq!(
+            AuraDeviceType::for_product_and_board("18c6", "G533QS"),
+            AuraDeviceType::LaptopKeyboardPre2021
+        );
+        assert_eq!(
+            AuraDeviceType::for_product_and_board("18c6", "GZ302XX"),
+            AuraDeviceType::LaptopKeyboardPre2021
+        );
     }
 }
 

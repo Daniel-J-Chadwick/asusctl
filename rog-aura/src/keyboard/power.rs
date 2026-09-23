@@ -198,7 +198,10 @@ impl LaptopAuraPower {
     // TODO: use support data to setup correct zones
     pub fn new(aura_type: AuraDeviceType, support_data: &LedSupportData) -> Self {
         match aura_type {
-            AuraDeviceType::Unknown | AuraDeviceType::Ally | AuraDeviceType::LaptopKeyboard2021 => {
+            AuraDeviceType::Unknown
+            | AuraDeviceType::Ally
+            | AuraDeviceType::LaptopKeyboard2021
+            | AuraDeviceType::RearGlow => {
                 let mut states = Vec::new();
                 for zone in support_data.power_zones.iter() {
                     states.push(AuraPowerState::default_for(*zone))
@@ -240,7 +243,9 @@ impl LaptopAuraPower {
             ];
         }
         match aura_type {
-            AuraDeviceType::LaptopKeyboard2021 | AuraDeviceType::Ally => self.new_to_bytes(),
+            AuraDeviceType::LaptopKeyboard2021
+            | AuraDeviceType::Ally
+            | AuraDeviceType::RearGlow => self.new_to_bytes(),
             AuraDeviceType::LaptopKeyboardPre2021 => {
                 if self.states.is_empty() {
                     vec![
