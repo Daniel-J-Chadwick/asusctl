@@ -116,7 +116,7 @@ impl Aura {
                 // was needed for the rear window to show verified green.
                 lamp.write_feature(&lamp_control(true))?;
                 lamp.write_feature(&lamp_control(false))?;
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 for report in static_colour_reports(mode.colour1) {
                     lamp.write_feature(&report)?;
                 }
