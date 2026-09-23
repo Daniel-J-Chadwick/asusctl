@@ -6,6 +6,7 @@ use rog_aura::keyboard::LaptopAuraPower;
 use rog_aura::{AuraDeviceType, PowerZones};
 use rog_dbus::zbus_aura::AuraProxy;
 use slint::{ComponentHandle, Model, RgbaColor, SharedString};
+use tokio::sync::watch;
 
 use crate::config::Config;
 use crate::ui::show_toast;
@@ -13,6 +14,15 @@ use crate::{AuraPageData, MainWindow, PowerZones as SlintPowerZones};
 
 fn selection_is_current(generation: &AtomicUsize, selected: usize) -> bool {
     generation.load(Ordering::SeqCst) == selected
+}
+
+fn is_keyboard_device(kind: AuraDeviceType) -> bool {
+    matches!(
+        kind,
+        AuraDeviceType::LaptopKeyboard2021
+            | AuraDeviceType::LaptopKeyboardPre2021
+            | AuraDeviceType::LaptopKeyboardTuf
+    )
 }
 
 fn decode_hex(s: &str) -> RgbaColor<u8> {
@@ -37,8 +47,8 @@ fn decode_hex(s: &str) -> RgbaColor<u8> {
     }
 }
 
-async fn aura_ifaces() -> Result<Vec<(SharedString, AuraProxy<'static>)>, Box<dyn std::error::Error>>
-{
+async fn aura_ifaces()
+-> Result<Vec<(AuraDeviceType, AuraProxy<'static>)>, Box<dyn std::error::Error>> {
     let conn = zbus::Connection::system().await?;
     let mgr = zbus::fdo::ObjectManagerProxy::new(&conn, "xyz.ljones.Asusd", "/").await?;
     let objs = mgr.get_managed_objects().await?;
@@ -55,16 +65,9 @@ async fn aura_ifaces() -> Result<Vec<(SharedString, AuraProxy<'static>)>, Box<dy
             .destination("xyz.ljones.Asusd")?
             .build()
             .await?;
-        let name: SharedString = match proxy.device_type().await? {
-            AuraDeviceType::RearGlow => "Rear window".into(),
-            AuraDeviceType::LaptopKeyboard2021
-            | AuraDeviceType::LaptopKeyboardPre2021
-            | AuraDeviceType::LaptopKeyboardTuf => "Keyboard".into(),
-            _ => "Aura device".into(),
-        };
-        devices.push((name, proxy));
+        devices.push((proxy.device_type().await?, proxy));
     }
-    devices.sort_by_key(|(name, _)| if name.as_str() == "Keyboard" { 0 } else { 1 });
+    devices.sort_by_key(|(kind, _)| !is_keyboard_device(*kind));
     if devices.is_empty() {
         return Err("No Aura interface".into());
     }
@@ -94,14 +97,12 @@ pub fn setup_aura_page(
             info!("No aura interfaces");
             return;
         };
-        let names: Vec<SharedString> = devices.iter().map(|(name, _)| name.clone()).collect();
+        let kinds: Vec<AuraDeviceType> = devices.iter().map(|(kind, _)| *kind).collect();
         let rear = devices
             .iter()
-            .find(|(name, _)| name.as_str() == "Rear window")
+            .find(|(kind, _)| *kind == AuraDeviceType::RearGlow)
             .map(|(_, proxy)| proxy.clone());
-        let initial_rear = (names[0].as_str() == "Keyboard")
-            .then(|| rear.clone())
-            .flatten();
+        let initial_rear = is_keyboard_device(kinds[0]).then(|| rear.clone()).flatten();
         let proxies = Arc::new(
             devices
                 .into_iter()
@@ -109,13 +110,24 @@ pub fn setup_aura_page(
                 .collect::<Vec<_>>(),
         );
         let generation = Arc::new(AtomicUsize::new(0));
+        let (selection_tx, selection_rx) = watch::channel(0usize);
         let select_proxies = proxies.clone();
         let select_generation = generation.clone();
         let select_handle = handle.clone();
         let select_rear = rear.clone();
-        let select_names = names.clone();
+        let select_kinds = kinds.clone();
+        let select_rx = selection_rx.clone();
         handle
             .upgrade_in_event_loop(move |h| {
+                let labels = h.global::<AuraPageData>();
+                let names: Vec<SharedString> = kinds
+                    .iter()
+                    .map(|kind| match kind {
+                        AuraDeviceType::RearGlow => labels.get_rear_device_name(),
+                        kind if is_keyboard_device(*kind) => labels.get_keyboard_device_name(),
+                        _ => labels.get_generic_device_name(),
+                    })
+                    .collect();
                 h.global::<AuraPageData>()
                     .set_device_names(names.as_slice().into());
                 h.global::<AuraPageData>().on_select_device(move |index| {
@@ -123,7 +135,8 @@ pub fn setup_aura_page(
                         return;
                     };
                     let selected = select_generation.fetch_add(1, Ordering::SeqCst) + 1;
-                    let rear_to_reassert = (select_names[index as usize].as_str() == "Keyboard")
+                    selection_tx.send_replace(selected);
+                    let rear_to_reassert = is_keyboard_device(select_kinds[index as usize])
                         .then(|| select_rear.clone())
                         .flatten();
                     tokio::spawn(load_aura_page(
@@ -132,6 +145,7 @@ pub fn setup_aura_page(
                         rear_to_reassert,
                         None,
                         select_generation.clone(),
+                        select_rx.clone(),
                         selected,
                     ));
                 });
@@ -144,6 +158,7 @@ pub fn setup_aura_page(
             initial_rear,
             prefetched_supported,
             generation,
+            selection_rx,
             0,
         )
         .await;
@@ -156,6 +171,7 @@ async fn load_aura_page(
     rear_to_reassert: Option<AuraProxy<'static>>,
     prefetched_supported: Option<Vec<i32>>,
     generation: Arc<AtomicUsize>,
+    selection_rx: watch::Receiver<usize>,
     selected: usize,
 ) {
     if !selection_is_current(&generation, selected) {
@@ -342,22 +358,36 @@ async fn load_aura_page(
     let brightness_stream = aura.clone();
     let brightness_handle = handle.clone();
     let brightness_generation = generation.clone();
+    let mut brightness_selection = selection_rx.clone();
     tokio::spawn(async move {
         use futures_util::StreamExt;
+        if *brightness_selection.borrow() != selected {
+            return;
+        }
         let mut stream = brightness_stream.receive_brightness_changed().await;
-        while let Some(event) = stream.next().await {
-            if !selection_is_current(&brightness_generation, selected) {
-                break;
-            }
-            if let Ok(value) = event.get().await {
-                let current = brightness_generation.clone();
-                brightness_handle
-                    .upgrade_in_event_loop(move |h| {
-                        if selection_is_current(&current, selected) {
-                            h.global::<AuraPageData>().set_brightness(value.into());
-                        }
-                    })
-                    .ok();
+        loop {
+            tokio::select! {
+                changed = brightness_selection.changed() => {
+                    if changed.is_err() || *brightness_selection.borrow() != selected {
+                        break;
+                    }
+                }
+                event = stream.next() => {
+                    let Some(event) = event else { break };
+                    if !selection_is_current(&brightness_generation, selected) {
+                        break;
+                    }
+                    if let Ok(value) = event.get().await {
+                        let current = brightness_generation.clone();
+                        brightness_handle
+                            .upgrade_in_event_loop(move |h| {
+                                if selection_is_current(&current, selected) {
+                                    h.global::<AuraPageData>().set_brightness(value.into());
+                                }
+                            })
+                            .ok();
+                    }
+                }
             }
         }
     });
@@ -394,34 +424,48 @@ async fn load_aura_page(
     let stream_handle = handle.clone();
     let stream_generation = generation.clone();
     let aura_stream = aura.clone();
+    let mut stream_selection = selection_rx;
     tokio::spawn(async move {
         use futures_util::StreamExt;
+        if *stream_selection.borrow() != selected {
+            return;
+        }
         let mut stream = aura_stream.receive_led_mode_data_changed().await;
-        while let Some(e) = stream.next().await {
-            if !selection_is_current(&stream_generation, selected) {
-                break;
-            }
-            if let Ok(out) = e.get().await {
-                let raw: i32 = out.mode.into();
-                let data = out.into();
-                let current = stream_generation.clone();
-                stream_handle
-                    .upgrade_in_event_loop(move |h| {
-                        if !selection_is_current(&current, selected) {
-                            return;
-                        }
-                        h.global::<AuraPageData>().invoke_update_led_mode_data(data);
-                        let supported: Vec<i32> = h
-                            .global::<AuraPageData>()
-                            .get_supported_basic_modes()
-                            .iter()
-                            .collect();
-                        let idx = supported.iter().position(|&x| x == raw).unwrap_or(0) as i32;
-                        h.global::<AuraPageData>().set_current_available_mode(idx);
-                        h.invoke_external_colour_change();
-                    })
-                    .map_err(|e| error!("{e}"))
-                    .ok();
+        loop {
+            tokio::select! {
+                changed = stream_selection.changed() => {
+                    if changed.is_err() || *stream_selection.borrow() != selected {
+                        break;
+                    }
+                }
+                event = stream.next() => {
+                    let Some(e) = event else { break };
+                    if !selection_is_current(&stream_generation, selected) {
+                        break;
+                    }
+                    if let Ok(out) = e.get().await {
+                        let raw: i32 = out.mode.into();
+                        let data = out.into();
+                        let current = stream_generation.clone();
+                        stream_handle
+                            .upgrade_in_event_loop(move |h| {
+                                if !selection_is_current(&current, selected) {
+                                    return;
+                                }
+                                h.global::<AuraPageData>().invoke_update_led_mode_data(data);
+                                let supported: Vec<i32> = h
+                                    .global::<AuraPageData>()
+                                    .get_supported_basic_modes()
+                                    .iter()
+                                    .collect();
+                                let idx = supported.iter().position(|&x| x == raw).unwrap_or(0) as i32;
+                                h.global::<AuraPageData>().set_current_available_mode(idx);
+                                h.invoke_external_colour_change();
+                            })
+                            .map_err(|e| error!("{e}"))
+                            .ok();
+                    }
+                }
             }
         }
     });
