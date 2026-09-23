@@ -768,7 +768,7 @@ fn handle_led_power1(
     }
 
     if !updated {
-        println!("These options are for keyboards of product ID 0x1866 or TUF only");
+        return Err("These options are for keyboards of product ID 0x1866 or TUF only".into());
     }
     Ok(())
 }
