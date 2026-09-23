@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
-"POT-Creation-Date: 2026-09-23 20:48+0000\n"
+"POT-Creation-Date: 2026-09-23 21:23+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -997,203 +997,218 @@ msgctxt "PageAura"
 msgid "Power Zones"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:58
-msgctxt "Aura power zone"
-msgid "Logo"
-msgstr ""
-
-#: rog-control-center/ui/types/aura_types.slint:59
-#: rog-control-center/ui/types/aura_types.slint:59
-msgctxt "Aura power zone"
+#: rog-control-center/ui/types/aura_types.slint:55
+msgctxt "Lighting device"
 msgid "Keyboard"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:60
-#: rog-control-center/ui/types/aura_types.slint:60
-msgctxt "Aura power zone"
-msgid "Lightbar"
+#: rog-control-center/ui/types/aura_types.slint:56
+msgctxt "Lighting device"
+msgid "Rear window"
+msgstr ""
+
+#: rog-control-center/ui/types/aura_types.slint:57
+msgctxt "Lighting device"
+msgid "Aura device"
 msgstr ""
 
 #: rog-control-center/ui/types/aura_types.slint:61
 msgctxt "Aura power zone"
-msgid "Lid"
+msgid "Logo"
 msgstr ""
 
 #: rog-control-center/ui/types/aura_types.slint:62
+#: rog-control-center/ui/types/aura_types.slint:62
 msgctxt "Aura power zone"
-msgid "Rear Glow"
+msgid "Keyboard"
 msgstr ""
 
 #: rog-control-center/ui/types/aura_types.slint:63
 #: rog-control-center/ui/types/aura_types.slint:63
 msgctxt "Aura power zone"
-msgid "Keyboard and Lightbar"
+msgid "Lightbar"
 msgstr ""
 
 #: rog-control-center/ui/types/aura_types.slint:64
 msgctxt "Aura power zone"
+msgid "Lid"
+msgstr ""
+
+#: rog-control-center/ui/types/aura_types.slint:65
+msgctxt "Aura power zone"
+msgid "Rear Glow"
+msgstr ""
+
+#: rog-control-center/ui/types/aura_types.slint:66
+#: rog-control-center/ui/types/aura_types.slint:66
+msgctxt "Aura power zone"
+msgid "Keyboard and Lightbar"
+msgstr ""
+
+#: rog-control-center/ui/types/aura_types.slint:67
+msgctxt "Aura power zone"
 msgid "Ally"
-msgstr ""
-
-#: rog-control-center/ui/types/aura_types.slint:74
-msgctxt "Aura brightness"
-msgid "Off"
-msgstr ""
-
-#: rog-control-center/ui/types/aura_types.slint:75
-msgctxt "Aura brightness"
-msgid "Low"
-msgstr ""
-
-#: rog-control-center/ui/types/aura_types.slint:76
-msgctxt "Aura brightness"
-msgid "Med"
 msgstr ""
 
 #: rog-control-center/ui/types/aura_types.slint:77
 msgctxt "Aura brightness"
+msgid "Off"
+msgstr ""
+
+#: rog-control-center/ui/types/aura_types.slint:78
+msgctxt "Aura brightness"
+msgid "Low"
+msgstr ""
+
+#: rog-control-center/ui/types/aura_types.slint:79
+msgctxt "Aura brightness"
+msgid "Med"
+msgstr ""
+
+#: rog-control-center/ui/types/aura_types.slint:80
+msgctxt "Aura brightness"
 msgid "High"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:82
-#: rog-control-center/ui/types/aura_types.slint:82
+#: rog-control-center/ui/types/aura_types.slint:85
+#: rog-control-center/ui/types/aura_types.slint:85
 msgctxt "Basic aura mode"
 msgid "Static"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:83
-#: rog-control-center/ui/types/aura_types.slint:83
+#: rog-control-center/ui/types/aura_types.slint:86
+#: rog-control-center/ui/types/aura_types.slint:86
 msgctxt "Basic aura mode"
 msgid "Breathe"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:84
-#: rog-control-center/ui/types/aura_types.slint:84
+#: rog-control-center/ui/types/aura_types.slint:87
+#: rog-control-center/ui/types/aura_types.slint:87
 msgctxt "Basic aura mode"
 msgid "Strobe"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:85
+#: rog-control-center/ui/types/aura_types.slint:88
 msgctxt "Basic aura mode"
 msgid "Rainbow"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:86
+#: rog-control-center/ui/types/aura_types.slint:89
 msgctxt "Basic aura mode"
 msgid "Star"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:87
+#: rog-control-center/ui/types/aura_types.slint:90
 msgctxt "Basic aura mode"
 msgid "Rain"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:88
+#: rog-control-center/ui/types/aura_types.slint:91
 msgctxt "Basic aura mode"
 msgid "Highlight"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:89
+#: rog-control-center/ui/types/aura_types.slint:92
 msgctxt "Basic aura mode"
 msgid "Laser"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:90
+#: rog-control-center/ui/types/aura_types.slint:93
 msgctxt "Basic aura mode"
 msgid "Ripple"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:91
+#: rog-control-center/ui/types/aura_types.slint:94
 msgctxt "Basic aura mode"
 msgid "Nothing"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:92
+#: rog-control-center/ui/types/aura_types.slint:95
 msgctxt "Basic aura mode"
 msgid "Pulse"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:93
+#: rog-control-center/ui/types/aura_types.slint:96
 msgctxt "Basic aura mode"
 msgid "Comet"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:94
+#: rog-control-center/ui/types/aura_types.slint:97
 msgctxt "Basic aura mode"
 msgid "Flash"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:100
+#: rog-control-center/ui/types/aura_types.slint:103
 msgctxt "Aura zone"
 msgid "None"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:101
+#: rog-control-center/ui/types/aura_types.slint:104
 msgctxt "Aura zone"
 msgid "Key1"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:102
+#: rog-control-center/ui/types/aura_types.slint:105
 msgctxt "Aura zone"
 msgid "Key2"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:103
+#: rog-control-center/ui/types/aura_types.slint:106
 msgctxt "Aura zone"
 msgid "Key3"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:104
+#: rog-control-center/ui/types/aura_types.slint:107
 msgctxt "Aura zone"
 msgid "Key4"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:105
+#: rog-control-center/ui/types/aura_types.slint:108
 msgctxt "Aura zone"
 msgid "Logo"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:106
+#: rog-control-center/ui/types/aura_types.slint:109
 msgctxt "Aura zone"
 msgid "Lightbar Left"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:107
+#: rog-control-center/ui/types/aura_types.slint:110
 msgctxt "Aura zone"
 msgid "Lightbar Right"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:110
+#: rog-control-center/ui/types/aura_types.slint:113
 msgctxt "Aura direction"
 msgid "Right"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:111
+#: rog-control-center/ui/types/aura_types.slint:114
 msgctxt "Aura direction"
 msgid "Left"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:112
+#: rog-control-center/ui/types/aura_types.slint:115
 msgctxt "Aura direction"
 msgid "Up"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:113
+#: rog-control-center/ui/types/aura_types.slint:116
 msgctxt "Aura direction"
 msgid "Down"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:116
+#: rog-control-center/ui/types/aura_types.slint:119
 msgctxt "Aura speed"
 msgid "Low"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:117
+#: rog-control-center/ui/types/aura_types.slint:120
 msgctxt "Aura speed"
 msgid "Medium"
 msgstr ""
 
-#: rog-control-center/ui/types/aura_types.slint:118
+#: rog-control-center/ui/types/aura_types.slint:121
 msgctxt "Aura speed"
 msgid "High"
 msgstr ""
